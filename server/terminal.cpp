@@ -1,7 +1,5 @@
 #include "terminal.hpp"
 
-#include "raw_mode.h"
-
 #include <iostream>
 #include <cstdlib>
 
@@ -11,25 +9,18 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <sys/ioctl.h>
-#include <signal.h>
 #include <errno.h>
+#include <signal.h>
 
 using namespace std;
 
-namespace {
-    // Set by the SIGWINCH handler, read by the poll loop.
-    volatile sig_atomic_t window_resized = 0;
-
-    void handle_sigwinch(int) {
-        window_resized = 1;
-    }
-}
-
-void Terminal::start() {
+void Terminal::start(int client_fd) {
     int master_fd;
 
-    struct winsize size;
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
+    // Provisional: the real size will be negotiated by the protocol in v0.3.
+    struct winsize size = {};
+    size.ws_row = 24;
+    size.ws_col = 80;
 
     pid_t pid = forkpty(
         &master_fd,
@@ -56,12 +47,9 @@ void Terminal::start() {
     }
 
     // PARENT PROCESS
-    cout << "Dterm v0.1\n";
-    cout << "-------------------------\n\n";
-
     pollfd fds[2];
 
-    fds[0].fd = STDIN_FILENO;
+    fds[0].fd = client_fd;
     fds[0].events = POLLIN;
 
     fds[1].fd = master_fd;
@@ -69,29 +57,12 @@ void Terminal::start() {
 
     bool running = true;
 
-    struct sigaction sa = {};
-    sa.sa_handler = handle_sigwinch;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sigaction(SIGWINCH, &sa, nullptr);
-
-    RawMode raw_mode;
-
     while (running) {
          int result = poll(
              fds,
              2,
              -1
          );
-
-        if (window_resized) {
-            window_resized = 0;
-
-            struct winsize current;
-            if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &current) != -1) {
-                ioctl(master_fd, TIOCSWINSZ, &current);
-            }
-        }
 
         if (result == -1) {
             if (errno == EINTR) {
@@ -101,13 +72,13 @@ void Terminal::start() {
             cerr << "failed to poll\n";
             break;
         }
-        // Keyboard PTY
-        if (fds [0].revents & POLLIN) {
+
+        // client -> PTY
+        if (fds[0].revents & POLLIN) {
             char buffer[4096];
 
-            ssize_t bytes_read;
-            bytes_read = read(
-                STDIN_FILENO,
+            ssize_t bytes_read = read(
+                client_fd,
                 buffer,
                 sizeof(buffer)
             );
@@ -115,15 +86,15 @@ void Terminal::start() {
             if (bytes_read <= 0) {
                 break;
             }
+
             write(
                 master_fd,
                 buffer,
                 bytes_read
             );
-
         }
 
-        // PTY -> screen
+        // PTY -> client
         if (fds[1].revents & POLLIN) {
             char buffer[4096];
 
@@ -139,19 +110,21 @@ void Terminal::start() {
             }
 
             write(
-                STDOUT_FILENO,
+                client_fd,
                 buffer,
                 bytes_read
             );
         }
 
-        // bash exited: the PTY master hangs up
-        if (fds[1].revents & (POLLHUP | POLLERR)) {
+        // the client hung up, or bash exited
+        if ((fds[0].revents | fds[1].revents) & (POLLHUP | POLLERR)) {
             running = false;
         }
     }
 
     close(master_fd);
+
+    kill(pid, SIGHUP);
     waitpid(
         pid,
         nullptr,

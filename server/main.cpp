@@ -1,17 +1,8 @@
-#include <iostream>
-#include <unistd.h>
-
-using namespace std;
-#include "terminal.hpp"
+#include "server.hpp"
 
 int main() {
-    const auto lang = "C++";
-    Terminal terminal;
-    terminal.start();
+    Server server(4242);
+    server.run();
 
     return 0;
-};
-
-
-
-
+}

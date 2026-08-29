@@ -7,5 +7,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(dterm
         server/main.cpp
         server/terminal.cpp
-        server/raw_mode.cpp
+        server/server.cpp
+)
+
+add_executable(dterm-client
+        client/main.cpp
+        client/raw_mode.cpp
 )
