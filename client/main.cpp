@@ -1,8 +1,8 @@
 #include "raw_mode.h"
+#include "protocol.hpp"
 
 #include <iostream>
 #include <cstdlib>
-#include <cstring>
 
 #include <poll.h>
 #include <unistd.h>
@@ -10,10 +10,19 @@
 #include <signal.h>
 #include <netdb.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 
 using namespace std;
+using namespace protocol;
 
 namespace {
+
+    volatile sig_atomic_t window_resized = 0;
+
+    void handle_sigwinch(int) {
+        window_resized = 1;
+    }
+
     int connect_to(const char *host, const char *port) {
         addrinfo hints = {};
         hints.ai_family = AF_INET;
@@ -44,6 +53,23 @@ namespace {
         freeaddrinfo(candidates);
         return fd;
     }
+
+    Status send_hello(int fd) {
+        const uint8_t hello[] = {'D', 'T', 'R', 'M', VERSION};
+        return send_frame(fd, Type::Hello, hello, sizeof(hello));
+    }
+
+    Status send_current_size(int fd) {
+        winsize size = {};
+
+        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == -1) {
+            return Status::Ok;
+        }
+
+        const vector<uint8_t> payload = encode_resize(size.ws_row, size.ws_col);
+        return send_frame(fd, Type::Resize, payload.data(),
+                          static_cast<uint32_t>(payload.size()));
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -58,10 +84,26 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
+    if (send_hello(server_fd) != Status::Ok) {
+        cerr << "failed to send handshake\n";
+        close(server_fd);
+        return EXIT_FAILURE;
+    }
+
     cout << "connected to " << host << ":" << port << "\n";
+
+    struct sigaction sa = {};
+    sa.sa_handler = handle_sigwinch;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGWINCH, &sa, nullptr);
 
     {
         RawMode raw_mode;
+
+        send_current_size(server_fd);
+
+        FrameReader reader;
 
         pollfd fds[2];
 
@@ -74,7 +116,14 @@ int main(int argc, char *argv[]) {
         bool running = true;
 
         while (running) {
-            if (poll(fds, 2, -1) == -1) {
+            const int ready = poll(fds, 2, -1);
+
+            if (window_resized) {
+                window_resized = 0;
+                send_current_size(server_fd);
+            }
+
+            if (ready == -1) {
                 if (errno == EINTR) {
                     continue;
                 }
@@ -91,20 +140,44 @@ int main(int argc, char *argv[]) {
                     break;
                 }
 
-                write(server_fd, buffer, bytes_read);
+                if (send_frame(server_fd, Type::Input, buffer,
+                               static_cast<uint32_t>(bytes_read)) != Status::Ok) {
+                    break;
+                }
             }
 
             // server -> screen
             if (fds[1].revents & POLLIN) {
-                char buffer[4096];
-
-                ssize_t bytes_read = read(server_fd, buffer, sizeof(buffer));
-                if (bytes_read <= 0) {
+                if (reader.feed(server_fd) != Status::Ok) {
                     running = false;
                     break;
                 }
 
-                write(STDOUT_FILENO, buffer, bytes_read);
+                Frame frame;
+                Parse parsed;
+
+                while ((parsed = reader.next(frame)) == Parse::Ready) {
+                    switch (frame.type) {
+                        case Type::Output:
+                            if (!frame.payload.empty()) {
+                                write(STDOUT_FILENO, frame.payload.data(),
+                                      frame.payload.size());
+                            }
+                            break;
+
+                        case Type::Ping:
+                            send_frame(server_fd, Type::Pong);
+                            break;
+
+                        default:
+                            break;
+                    }
+                }
+
+                if (parsed == Parse::Malformed) {
+                    running = false;
+                    break;
+                }
             }
 
             if ((fds[0].revents | fds[1].revents) & (POLLHUP | POLLERR)) {
