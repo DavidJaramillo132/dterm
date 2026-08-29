@@ -1,0 +1,18 @@
+# CLion
+.idea/
+
+# CMake
+cmake-build-*/
+build/
+
+# Compiled files
+*.o
+*.obj
+*.exe
+
+# Executables
+dterm
+
+# OS files
+.DS_Store
+Thumbs.db
