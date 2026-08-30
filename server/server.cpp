@@ -4,6 +4,7 @@
 
 #include "server.hpp"
 #include "terminal.hpp"
+#include "auth.hpp"
 
 #include <iostream>
 
@@ -26,6 +27,15 @@ Server::~Server() {
 }
 
 void Server::run() {
+    // Fail closed: no secret, no server. Better than silently serving a shell.
+    string secret;
+    string error;
+
+    if (!protocol::load_secret(secret, error)) {
+        cerr << error << endl;
+        return;
+    }
+
     // A client that disappears mid-write would otherwise kill us with SIGPIPE.
     signal(SIGPIPE, SIG_IGN);
 
@@ -80,7 +90,7 @@ void Server::run() {
         cout << "client connected from " << client_ip << endl;
 
         Terminal terminal;
-        terminal.start(client_fd);
+        terminal.start(client_fd, secret);
 
         close(client_fd);
         cout << "client disconnected" << endl;

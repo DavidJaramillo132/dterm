@@ -26,6 +26,11 @@ namespace protocol {
         Resize = 0x03,   // client -> server: rows + cols, uint16 BE each
         Ping   = 0x04,
         Pong   = 0x05,
+
+        Challenge = 0x06,   // server -> client: CHALLENGE_SIZE random bytes
+        Auth      = 0x07,   // client -> server: HMAC-SHA256(secret, challenge)
+        AuthOk    = 0x08,
+        AuthFail  = 0x09,
     };
 
     struct Frame {

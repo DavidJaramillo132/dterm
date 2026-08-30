@@ -1,7 +1,9 @@
 #include "raw_mode.h"
 #include "protocol.hpp"
+#include "auth.hpp"
 
 #include <iostream>
+#include <string>
 #include <cstdlib>
 
 #include <poll.h>
@@ -59,6 +61,83 @@ namespace {
         return send_frame(fd, Type::Hello, hello, sizeof(hello));
     }
 
+    constexpr int HANDSHAKE_TIMEOUT_MS = 5000;
+
+    // Same blocking read as the server side: one whole frame, or give up.
+    bool next_frame(int fd, FrameReader &reader, Frame &frame) {
+        pollfd waiting = {fd, POLLIN, 0};
+
+        while (true) {
+            const Parse parsed = reader.next(frame);
+
+            if (parsed == Parse::Ready) {
+                return true;
+            }
+
+            if (parsed == Parse::Malformed) {
+                cerr << "malformed frame during handshake\n";
+                return false;
+            }
+
+            const int ready = poll(&waiting, 1, HANDSHAKE_TIMEOUT_MS);
+
+            if (ready == -1) {
+                if (errno == EINTR) {
+                    continue;
+                }
+
+                return false;
+            }
+
+            if (ready == 0) {
+                cerr << "server did not answer the handshake\n";
+                return false;
+            }
+
+            if (reader.feed(fd) != Status::Ok) {
+                cerr << "server closed the connection during the handshake\n";
+                return false;
+            }
+        }
+    }
+
+    // Answers the server's challenge with a MAC only the secret can produce.
+    bool authenticate(int fd, FrameReader &reader, const string &secret) {
+        Frame frame;
+
+        if (!next_frame(fd, reader, frame)) {
+            return false;
+        }
+
+        if (frame.type != Type::Challenge || frame.payload.size() != CHALLENGE_SIZE) {
+            cerr << "server did not send a valid challenge\n";
+            return false;
+        }
+
+        const vector<uint8_t> mac = hmac_sha256(secret, frame.payload);
+
+        if (mac.empty()) {
+            cerr << "failed to compute the response\n";
+            return false;
+        }
+
+        if (send_frame(fd, Type::Auth, mac.data(),
+                       static_cast<uint32_t>(mac.size())) != Status::Ok) {
+            return false;
+        }
+
+        if (!next_frame(fd, reader, frame)) {
+            return false;
+        }
+
+        if (frame.type != Type::AuthOk) {
+            cerr << "server rejected the shared secret\n";
+            return false;
+        }
+
+        return true;
+    }
+
     Status send_current_size(int fd) {
         winsize size = {};
 
@@ -78,6 +157,14 @@ int main(int argc, char *argv[]) {
 
     signal(SIGPIPE, SIG_IGN);
 
+    string secret;
+    string error;
+
+    if (!load_secret(secret, error)) {
+        cerr << error << "\n";
+        return EXIT_FAILURE;
+    }
+
     int server_fd = connect_to(host, port);
     if (server_fd == -1) {
         cerr << "failed to connect to " << host << ":" << port << "\n";
@@ -86,6 +173,13 @@ int main(int argc, char *argv[]) {
 
     if (send_hello(server_fd) != Status::Ok) {
         cerr << "failed to send handshake\n";
+        close(server_fd);
+        return EXIT_FAILURE;
+    }
+
+    FrameReader reader;
+
+    if (!authenticate(server_fd, reader, secret)) {
         close(server_fd);
         return EXIT_FAILURE;
     }
@@ -102,8 +196,6 @@ int main(int argc, char *argv[]) {
         RawMode raw_mode;
 
         send_current_size(server_fd);
-
-        FrameReader reader;
 
         pollfd fds[2];
 
