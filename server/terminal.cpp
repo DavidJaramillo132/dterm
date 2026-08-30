@@ -21,6 +21,10 @@ namespace {
 
     constexpr int HANDSHAKE_TIMEOUT_MS = 5000;
 
+    // A silent client gets pinged; two unanswered pings and it is gone.
+    constexpr int PING_INTERVAL_MS = 30000;
+    constexpr int MAX_MISSED_PONGS = 2;
+
     // Blocks until one whole frame arrives, or the client stays silent too long.
     bool next_frame(int client_fd, FrameReader &reader, Frame &frame) {
         pollfd fd = {client_fd, POLLIN, 0};
@@ -189,15 +193,33 @@ void Terminal::start(int client_fd, const string &secret) {
     fds[1].events = POLLIN;
 
     bool running = true;
+    int missed_pongs = 0;
 
     while (running) {
-        if (poll(fds, 2, -1) == -1) {
+        const int ready = poll(fds, 2, PING_INTERVAL_MS);
+
+        if (ready == -1) {
+            // A signal interrupted us; revents was never written, so start over.
             if (errno == EINTR) {
                 continue;
             }
 
-            cerr << "failed to poll\n";
+            cerr << "failed to poll" << endl;
             break;
+        }
+
+        if (ready == 0) {
+            if (missed_pongs >= MAX_MISSED_PONGS) {
+                cerr << "client stopped answering pings, dropping it" << endl;
+                break;
+            }
+
+            if (send_frame(client_fd, Type::Ping) != Status::Ok) {
+                break;
+            }
+
+            ++missed_pongs;
+            continue;   // revents is stale after a timeout: do not read it
         }
 
         // client -> PTY
@@ -205,6 +227,9 @@ void Terminal::start(int client_fd, const string &secret) {
             if (reader.feed(client_fd) != Status::Ok) {
                 break;
             }
+
+            // Any frame at all proves the client is still there.
+            missed_pongs = 0;
 
             Frame frame;
             Parse parsed;
