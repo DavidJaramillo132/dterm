@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <cstring>
+#include <utility>
 
 namespace protocol {
 
@@ -134,5 +135,11 @@ namespace protocol {
         cols = static_cast<std::uint16_t>((payload[2] << 8) | payload[3]);
 
         return true;
+    }
+
+    std::vector<std::uint8_t> FrameReader::take_buffer() {
+        std::vector<std::uint8_t> tail = std::move(buffer);
+        buffer.clear();
+        return tail;
     }
 }

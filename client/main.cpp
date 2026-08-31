@@ -4,6 +4,7 @@
 
 #include <iostream>
 #include <string>
+#include <cstring>
 #include <cstdlib>
 
 #include <poll.h>
@@ -138,6 +139,11 @@ namespace {
         return true;
     }
 
+    Status send_attach(int fd, const char *session) {
+        return send_frame(fd, Type::Attach, session,
+                          static_cast<uint32_t>(strlen(session)));
+    }
+
     Status send_current_size(int fd) {
         winsize size = {};
 
@@ -154,6 +160,7 @@ namespace {
 int main(int argc, char *argv[]) {
     const char *host = argc > 1 ? argv[1] : "127.0.0.1";
     const char *port = argc > 2 ? argv[2] : "4242";
+    const char *session = argc > 3 ? argv[3] : "default";
 
     signal(SIGPIPE, SIG_IGN);
 
@@ -184,7 +191,14 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    cout << "connected to " << host << ":" << port << "\n";
+    if (send_attach(server_fd, session) != Status::Ok) {
+        cerr << "failed to request session\n";
+        close(server_fd);
+        return EXIT_FAILURE;
+    }
+
+    cout << "connected to " << host << ":" << port
+         << " [session " << session << "]\n";
 
     struct sigaction sa = {};
     sa.sa_handler = handle_sigwinch;

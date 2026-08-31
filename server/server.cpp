@@ -3,7 +3,8 @@
 //
 
 #include "server.hpp"
-#include "terminal.hpp"
+#include "handshake.hpp"
+#include "session.hpp"
 #include "auth.hpp"
 
 #include <iostream>
@@ -16,12 +17,72 @@
 #include <errno.h>
 #include <sys/wait.h>
 #include <cstdlib>
+#include <poll.h>
+#include <vector>
+#include <string>
 
 using namespace std;
 
 namespace {
 
     constexpr int MAX_CLIENTS = 16;
+
+    bool write_all(int fd, const char *data, size_t length) {
+        size_t sent = 0;
+
+        while (sent < length) {
+            const ssize_t wrote = write(fd, data + sent, length - sent);
+
+            if (wrote == -1) {
+                if (errno == EINTR) {
+                    continue;
+                }
+
+                return false;
+            }
+
+            sent += static_cast<size_t>(wrote);
+        }
+
+        return true;
+    }
+
+    // Copies bytes both ways until either side goes away. This process does
+    // not parse frames: the session on the other end does that.
+    void pump(int client_fd, int session_fd) {
+        pollfd fds[2];
+        fds[0] = {client_fd, POLLIN, 0};
+        fds[1] = {session_fd, POLLIN, 0};
+
+        while (true) {
+            if (poll(fds, 2, -1) == -1) {
+                if (errno == EINTR) {
+                    continue;
+                }
+
+                return;
+            }
+
+            for (int i = 0; i < 2; ++i) {
+                if (fds[i].revents & POLLIN) {
+                    char buffer[8192];
+                    const ssize_t got = read(fds[i].fd, buffer, sizeof(buffer));
+
+                    if (got <= 0) {
+                        return;
+                    }
+
+                    if (!write_all(fds[1 - i].fd, buffer, static_cast<size_t>(got))) {
+                        return;
+                    }
+                }
+            }
+
+            if ((fds[0].revents | fds[1].revents) & (POLLHUP | POLLERR)) {
+                return;
+            }
+        }
+    }
 
     // Touched by both the accept loop and the SIGCHLD handler, so it must be
     // sig_atomic_t and every read-modify-write has to run with SIGCHLD blocked.
@@ -157,8 +218,31 @@ void Server::run() {
 
             cout << "client connected from " << client_ip << endl;
 
-            Terminal terminal;
-            terminal.start(client_fd, secret);
+            protocol::FrameReader reader;
+            string session_name;
+
+            if (handshake(client_fd, reader, secret, session_name)) {
+                // The session must not inherit this socket, or the connection
+                // would never fully close when this process goes away.
+                const int session_fd = session::open(session_name, client_fd);
+
+                if (session_fd == -1) {
+                    cerr << "could not reach session '" << session_name << "'" << endl;
+                } else {
+                    // Anything the client sent behind the ATTACH frame belongs
+                    // to the session, not to us.
+                    const vector<uint8_t> pending = reader.take_buffer();
+
+                    if (pending.empty() ||
+                        write_all(session_fd,
+                                  reinterpret_cast<const char *>(pending.data()),
+                                  pending.size())) {
+                        pump(client_fd, session_fd);
+                    }
+
+                    close(session_fd);
+                }
+            }
 
             close(client_fd);
             cout << "client disconnected" << endl;

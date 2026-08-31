@@ -17,7 +17,7 @@ namespace protocol {
 
     inline constexpr std::size_t HEADER_SIZE = 5;
     inline constexpr std::uint32_t MAX_PAYLOAD = 1u << 20;   // 1 MiB
-    inline constexpr std::uint8_t VERSION = 1;
+    inline constexpr std::uint8_t VERSION = 2;
 
     enum class Type : std::uint8_t {
         Hello  = 0x00,   // payload: "DTRM" + version byte
@@ -31,6 +31,8 @@ namespace protocol {
         Auth      = 0x07,   // client -> server: HMAC-SHA256(secret, challenge)
         AuthOk    = 0x08,
         AuthFail  = 0x09,
+
+        Attach    = 0x0A,   // client -> server: session name, empty = "default"
     };
 
     struct Frame {
@@ -63,6 +65,10 @@ namespace protocol {
 
         // Pops a complete frame if the buffer holds one.
         Parse next(Frame &frame);
+
+        // Hands over the unparsed tail and empties the reader. Needed when one
+        // process stops parsing and another takes over the same byte stream.
+        std::vector<std::uint8_t> take_buffer();
 
     private:
         std::vector<std::uint8_t> buffer;

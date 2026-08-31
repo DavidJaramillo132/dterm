@@ -10,7 +10,8 @@ include_directories(protocol)
 
 add_executable(dterm
         server/main.cpp
-        server/terminal.cpp
+        server/handshake.cpp
+        server/session.cpp
         server/server.cpp
         protocol/protocol.cpp
         protocol/auth.cpp
