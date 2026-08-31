@@ -30,3 +30,15 @@ add_executable(protocol-test
         tests/protocol_test.cpp
         protocol/protocol.cpp
 )
+
+enable_testing()
+
+add_test(NAME protocol COMMAND protocol-test)
+
+add_test(NAME integration
+        COMMAND ${CMAKE_COMMAND} -E env
+        DTERM_SERVER=$<TARGET_FILE:dterm>
+        DTERM_CLIENT=$<TARGET_FILE:dterm-client>
+        python3 ${CMAKE_SOURCE_DIR}/tests/integration/run.py
+)
+set_tests_properties(integration PROPERTIES TIMEOUT 600)

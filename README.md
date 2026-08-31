@@ -60,7 +60,12 @@ On the machine hosting the shell:
 
 ```bash
 ./build/dterm            # listens on 0.0.0.0:4242
+./build/dterm 9000       # or on a port of your choice
 ```
+
+`DTERM_PING_SECONDS` sets how long a silent client is given before the server
+pings it (default 30). Two unanswered pings detach the client; the session is
+left running.
 
 From anywhere on the same network:
 
@@ -143,11 +148,33 @@ tests/      frame parser tests
 ## Testing
 
 ```bash
-./build/protocol-test
+cd build && ctest --output-on-failure
 ```
 
-The parser is exercised over the same byte stream delivered whole, one byte at
-a time, and in seven-byte slices, because TCP is free to split a frame anywhere.
+Two suites, 33 integration tests plus the parser unit test. It takes about two
+and a half minutes, most of it spent waiting on real timeouts.
+
+- `tests/protocol_test.cpp` feeds the parser the same byte stream whole, one
+  byte at a time, and in seven-byte slices, because TCP is free to split a
+  frame anywhere.
+- `tests/integration/` drives a real server over a real socket: the handshake
+  and every way it can be refused, session persistence across disconnects and
+  across a server restart, isolation between sessions, the connection limit,
+  and the keepalive.
+
+To run them directly, or to run one file:
+
+```bash
+python3 tests/integration/run.py
+python3 tests/integration/run.py test_session.py
+```
+
+Each test gets its own server on its own port with its own `HOME`, so the suite
+never touches a real `~/.dterm` or a real running server. Processes are found by
+reading `HOME` out of `/proc/<pid>/environ` rather than by matching command
+lines — `pgrep -f` also matches the test runner's own command line, and `pgrep`
+without `-f` compares only the process name, so a check for `bash --login` finds
+nothing and passes forever without testing anything.
 
 ## How a connection is served
 

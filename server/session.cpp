@@ -24,8 +24,25 @@ using namespace protocol;
 
 namespace {
 
-    constexpr int PING_INTERVAL_MS = 30000;
+    constexpr int DEFAULT_PING_SECONDS = 30;
     constexpr int MAX_MISSED_PONGS = 2;
+
+    // How long a silent client is given before it gets pinged. A phone on
+    // mobile data may want this shorter than a machine on a cable.
+    int ping_interval_ms() {
+        const char *configured = getenv("DTERM_PING_SECONDS");
+        int seconds = DEFAULT_PING_SECONDS;
+
+        if (configured != nullptr) {
+            const int parsed = atoi(configured);
+
+            if (parsed >= 1 && parsed <= 3600) {
+                seconds = parsed;
+            }
+        }
+
+        return seconds * 1000;
+    }
     constexpr size_t MAX_NAME = 32;
 
     // What a reattaching client gets replayed so the screen is not blank.
@@ -159,6 +176,8 @@ namespace {
 
         cout << "session '" << name << "' started" << endl;
 
+        const int ping_timeout = ping_interval_ms();
+
         vector<uint8_t> scrollback;
         FrameReader reader;
 
@@ -174,7 +193,7 @@ namespace {
             fds[1] = {master_fd, POLLIN, 0};
             fds[2] = {client_fd, POLLIN, 0};
 
-            const int timeout = client_fd == -1 ? -1 : PING_INTERVAL_MS;
+            const int timeout = client_fd == -1 ? -1 : ping_timeout;
             const int ready = poll(fds, 3, timeout);
 
             if (ready == -1) {
