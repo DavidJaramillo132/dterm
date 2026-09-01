@@ -170,6 +170,12 @@ namespace {
         }
 
         if (shell == 0) {
+            // Without this the shell inherits whatever TERM the server happened
+            // to be started with, which is nothing at all under systemd. A
+            // program that finds no TERM refuses to draw a full screen, so vim
+            // and friends would fail for a reason nowhere near the real cause.
+            setenv("TERM", "xterm-256color", 0);
+
             execlp("bash", "bash", "--login", nullptr);
             _exit(EXIT_FAILURE);
         }
