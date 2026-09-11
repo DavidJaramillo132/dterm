@@ -1,0 +1,270 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "DTerm \u2014 connect, authenticate, attach, come back",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1700,
+      780
+    ],
+    "views": [
+      {
+        "id": "handshake",
+        "label": "Proving the secret",
+        "focus": [
+          "app",
+          "listener",
+          "connection"
+        ],
+        "note": "The order is fixed and the whole exchange gets five seconds."
+      },
+      {
+        "id": "attach",
+        "label": "Finding the shell",
+        "focus": [
+          "connection",
+          "session",
+          "shell"
+        ],
+        "note": "The session is connected to if it exists, and spawned only if it does not."
+      },
+      {
+        "id": "reattach",
+        "label": "Losing the phone",
+        "focus": [
+          "app",
+          "connection",
+          "session",
+          "shell"
+        ],
+        "note": "The connection dies, the shell keeps running, and the scrollback fills the screen back in."
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "app",
+      "type": "frontend",
+      "label": "DTerm Mobile"
+    },
+    {
+      "id": "listener",
+      "type": "backend",
+      "label": "Listener"
+    },
+    {
+      "id": "connection",
+      "type": "backend",
+      "label": "Connection"
+    },
+    {
+      "id": "session",
+      "type": "backend",
+      "label": "Session"
+    },
+    {
+      "id": "shell",
+      "type": "external",
+      "label": "bash"
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 372,
+      "label": "Handshake"
+    },
+    {
+      "from": 372,
+      "to": 480,
+      "label": "Attach"
+    },
+    {
+      "from": 480,
+      "to": 552,
+      "label": "Running"
+    },
+    {
+      "from": 552,
+      "to": 700,
+      "label": "Disconnect and reattach"
+    }
+  ],
+  "messages": [
+    {
+      "id": "tcp",
+      "from": "app",
+      "to": "listener",
+      "y": 175,
+      "label": "TCP connect",
+      "variant": "emphasis"
+    },
+    {
+      "id": "fork",
+      "from": "listener",
+      "to": "connection",
+      "y": 211,
+      "label": "fork one process for this client",
+      "variant": "dashed"
+    },
+    {
+      "id": "hello",
+      "from": "app",
+      "to": "connection",
+      "y": 247,
+      "label": "HELLO  DTRM + version",
+      "variant": "emphasis"
+    },
+    {
+      "id": "challenge",
+      "from": "connection",
+      "to": "app",
+      "y": 283,
+      "label": "CHALLENGE  32 random bytes",
+      "variant": "security"
+    },
+    {
+      "id": "auth",
+      "from": "app",
+      "to": "connection",
+      "y": 319,
+      "label": "AUTH  HMAC-SHA256(secret, challenge)",
+      "variant": "security",
+      "note": "The secret itself never travels, and the next challenge differs"
+    },
+    {
+      "id": "authok",
+      "from": "connection",
+      "to": "app",
+      "y": 355,
+      "label": "AUTH_OK",
+      "variant": "return"
+    },
+    {
+      "id": "attach",
+      "from": "app",
+      "to": "connection",
+      "y": 391,
+      "label": "ATTACH  session name"
+    },
+    {
+      "id": "rendezvous",
+      "from": "connection",
+      "to": "session",
+      "y": 427,
+      "label": "connect to the Unix socket",
+      "variant": "emphasis",
+      "note": "Spawns the session only when no socket answers"
+    },
+    {
+      "id": "forkpty",
+      "from": "session",
+      "to": "shell",
+      "y": 463,
+      "label": "forkpty  bash --login",
+      "variant": "emphasis",
+      "note": "Nothing here runs until the secret is proven"
+    },
+    {
+      "id": "output",
+      "from": "shell",
+      "to": "session",
+      "y": 499,
+      "label": "writes to the terminal"
+    },
+    {
+      "id": "frames",
+      "from": "session",
+      "to": "app",
+      "y": 535,
+      "label": "OUTPUT frames",
+      "variant": "return",
+      "note": "The connection process only copies bytes; it parses nothing after AUTH"
+    },
+    {
+      "id": "gone",
+      "from": "app",
+      "to": "connection",
+      "y": 571,
+      "label": "the phone goes away",
+      "variant": "dashed",
+      "note": "The connection process exits; the session sets its client to -1 and never signals the shell"
+    },
+    {
+      "id": "keeps",
+      "from": "shell",
+      "to": "session",
+      "y": 607,
+      "label": "keeps working",
+      "note": "Read even with nobody attached, or the buffer fills and bash blocks"
+    },
+    {
+      "id": "reconnect",
+      "from": "app",
+      "to": "listener",
+      "y": 643,
+      "label": "reconnect, same secret and name",
+      "variant": "emphasis"
+    },
+    {
+      "id": "replay",
+      "from": "session",
+      "to": "app",
+      "y": 679,
+      "label": "replay the last 64 KiB",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "connection",
+      "from": 202,
+      "to": 590,
+      "type": "backend"
+    },
+    {
+      "participant": "session",
+      "from": 424,
+      "to": 700,
+      "type": "backend"
+    },
+    {
+      "participant": "shell",
+      "from": 460,
+      "to": 700,
+      "type": "external"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Nothing is spawned on trust",
+      "items": [
+        "HELLO, CHALLENGE, AUTH, AUTH_OK and ATTACH must arrive in that order",
+        "Anything else in between drops the connection, and the whole exchange gets five seconds",
+        "forkpty runs after AUTH_OK, so a wrong secret never costs a shell"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Attach, do not create",
+      "items": [
+        "ATTACH names a session; an empty name means default",
+        "A live socket is connected to, a stale one is unlinked and replaced",
+        "A second client taking over closes the first rather than sharing"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Coming back is cheap",
+      "items": [
+        "Losing the phone only closes a socket in the session process",
+        "The shell keeps its working directory, environment and running jobs",
+        "The replayed scrollback is what makes reattaching look instant"
+      ]
+    }
+  ]
+}

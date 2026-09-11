@@ -1,0 +1,331 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "DTerm \u2014 a shell that outlives its connection",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1300,
+      592
+    ],
+    "repository": {
+      "url": "https://github.com/DavidJaramillo132/dterm",
+      "revision": "d6e094c8c6dde04e3c1b5fe8c472e260e4bc6efd"
+    },
+    "views": [
+      {
+        "id": "connection-path",
+        "label": "One connection",
+        "focus": [
+          "app",
+          "listener",
+          "connection",
+          "sock",
+          "session"
+        ],
+        "note": "Follow a phone from the TCP port to the process that already owns the shell."
+      },
+      {
+        "id": "what-survives",
+        "label": "What survives a disconnect",
+        "focus": [
+          "sock",
+          "session",
+          "shell",
+          "scrollback"
+        ],
+        "note": "Everything inside this group keeps running when the phone goes away."
+      },
+      {
+        "id": "authentication",
+        "label": "Proving the secret",
+        "focus": [
+          "secret",
+          "listener",
+          "connection"
+        ],
+        "note": "No shell is spawned until the client answers the challenge correctly."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "app",
+      "type": "frontend",
+      "label": "DTerm Mobile",
+      "sublabel": "Kotlin, cell grid + cursor",
+      "tag": "separate repo",
+      "pos": [
+        40,
+        268
+      ],
+      "size": [
+        148,
+        72
+      ]
+    },
+    {
+      "id": "secret",
+      "type": "security",
+      "label": "Shared secret",
+      "sublabel": "~/.dterm/secret, mode 600",
+      "pos": [
+        250,
+        88
+      ],
+      "size": [
+        148,
+        72
+      ],
+      "sources": [
+        {
+          "path": "protocol/auth.cpp",
+          "line": 48,
+          "label": "load_secret"
+        }
+      ]
+    },
+    {
+      "id": "listener",
+      "type": "backend",
+      "label": "Listener",
+      "sublabel": "accept() on the TCP port",
+      "tag": "fail closed",
+      "pos": [
+        250,
+        268
+      ],
+      "size": [
+        148,
+        72
+      ],
+      "sources": [
+        {
+          "path": "server/server.cpp",
+          "line": 114,
+          "label": "Server::run"
+        }
+      ]
+    },
+    {
+      "id": "connection",
+      "type": "backend",
+      "label": "Connection process",
+      "sublabel": "one fork per client",
+      "tag": "parses nothing after AUTH",
+      "pos": [
+        460,
+        268
+      ],
+      "size": [
+        148,
+        72
+      ],
+      "sources": [
+        {
+          "path": "server/server.cpp",
+          "line": 199,
+          "label": "fork per client"
+        }
+      ]
+    },
+    {
+      "id": "sock",
+      "type": "messagebus",
+      "label": "Session socket",
+      "sublabel": "~/.dterm/sessions/NAME.sock",
+      "pos": [
+        670,
+        268
+      ],
+      "size": [
+        148,
+        72
+      ],
+      "sources": [
+        {
+          "path": "server/session.cpp",
+          "line": 62,
+          "label": "socket_path"
+        }
+      ]
+    },
+    {
+      "id": "session",
+      "type": "backend",
+      "label": "Session process",
+      "sublabel": "owns the PTY master",
+      "tag": "setsid, PPID 1",
+      "pos": [
+        880,
+        268
+      ],
+      "size": [
+        148,
+        72
+      ],
+      "sources": [
+        {
+          "path": "server/session.cpp",
+          "line": 140,
+          "label": "session::run"
+        }
+      ]
+    },
+    {
+      "id": "shell",
+      "type": "external",
+      "label": "bash --login",
+      "sublabel": "on the pseudo terminal",
+      "pos": [
+        1090,
+        268
+      ],
+      "size": [
+        148,
+        72
+      ],
+      "sources": [
+        {
+          "path": "server/session.cpp",
+          "line": 165,
+          "label": "forkpty"
+        }
+      ]
+    },
+    {
+      "id": "scrollback",
+      "type": "database",
+      "label": "Scrollback",
+      "sublabel": "last 64 KiB of output",
+      "pos": [
+        880,
+        452
+      ],
+      "size": [
+        148,
+        72
+      ],
+      "sources": [
+        {
+          "path": "server/session.cpp",
+          "line": 114,
+          "label": "remember and replay"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Linux host",
+      "wraps": [
+        "secret",
+        "listener",
+        "connection",
+        "sock",
+        "session",
+        "shell",
+        "scrollback"
+      ],
+      "pad": 22
+    },
+    {
+      "kind": "security-group",
+      "label": "outlives every connection",
+      "wraps": [
+        "sock",
+        "session",
+        "shell",
+        "scrollback"
+      ],
+      "pad": 14
+    }
+  ],
+  "connections": [
+    {
+      "id": "phone-to-listener",
+      "from": "app",
+      "to": "listener",
+      "label": "TCP, framed",
+      "variant": "emphasis"
+    },
+    {
+      "id": "secret-to-listener",
+      "from": "secret",
+      "to": "listener",
+      "label": "read at startup, or refuse to run",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "listener-to-connection",
+      "from": "listener",
+      "to": "connection",
+      "label": "fork"
+    },
+    {
+      "id": "connection-to-sock",
+      "from": "connection",
+      "to": "sock",
+      "label": "connect, else spawn",
+      "labelDy": 60
+    },
+    {
+      "id": "sock-to-session",
+      "from": "sock",
+      "to": "session",
+      "label": "accept",
+      "variant": "emphasis"
+    },
+    {
+      "id": "session-to-shell",
+      "from": "session",
+      "to": "shell",
+      "label": "PTY master",
+      "variant": "emphasis"
+    },
+    {
+      "id": "session-to-scrollback",
+      "from": "session",
+      "to": "scrollback",
+      "label": "remember, then replay on reattach",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 66
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Three processes, not one",
+      "items": [
+        "The listener only accepts and forks",
+        "The connection process dies with the socket",
+        "The session process is orphaned on purpose and keeps the shell"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Authenticated before anything costs",
+      "items": [
+        "The server sends 32 random bytes and expects HMAC-SHA256 back",
+        "The secret itself never crosses the wire, and a reply cannot be replayed",
+        "A wrong answer never reaches forkpty, so it costs no shell"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Why the shell does not freeze",
+      "items": [
+        "The session reads the PTY even with nobody attached",
+        "Stopping would fill the kernel buffer and block bash on its next write",
+        "Losing a client only sets the descriptor to -1; the shell is never signalled"
+      ]
+    }
+  ]
+}
