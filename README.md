@@ -67,6 +67,15 @@ On the machine hosting the shell:
 pings it (default 30). Two unanswered pings detach the client; the session is
 left running.
 
+`DTERM_START_DIR` sets where a new session's shell starts (default: your home
+directory). It is applied once, when the session is created, and never on
+reattach — a shell you have moved stays where you left it. A leading `~` is
+expanded, and a path that is not a directory falls back to home.
+
+```bash
+DTERM_START_DIR=~/Projects ./build/dterm
+```
+
 From anywhere on the same network:
 
 ```bash

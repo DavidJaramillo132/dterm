@@ -147,11 +147,12 @@ class Connection:
 class Server:
     """A dterm server on a private port, with a private HOME."""
 
-    def __init__(self, ping_seconds=None):
+    def __init__(self, ping_seconds=None, start_dir=None):
         self.home = tempfile.mkdtemp(prefix="dterm-test-")
         self.port = free_port()
         self.process = None
         self.ping_seconds = ping_seconds
+        self.start_dir = start_dir
 
     @property
     def session_dir(self):
@@ -176,17 +177,29 @@ class Server:
         return [pid for pid, cmd in processes_under(self.home)
                 if cmd.split(" ")[0] == SERVER]
 
-    def start(self):
+    def _environment(self):
+        """Exactly what this test asked for, and nothing from the caller's shell."""
         environment = dict(os.environ)
         environment["HOME"] = self.home
         environment["DTERM_SECRET"] = SECRET
 
+        # A value exported where the suite runs would otherwise leak into
+        # every test server and change what the tests are measuring.
+        environment.pop("DTERM_PING_SECONDS", None)
+        environment.pop("DTERM_START_DIR", None)
+
         if self.ping_seconds is not None:
             environment["DTERM_PING_SECONDS"] = str(self.ping_seconds)
 
+        if self.start_dir is not None:
+            environment["DTERM_START_DIR"] = self.start_dir
+
+        return environment
+
+    def start(self):
         self.process = subprocess.Popen(
             [SERVER, str(self.port)],
-            env=environment,
+            env=self._environment(),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -211,15 +224,8 @@ class Server:
 
     def restart(self):
         self.kill()
-        environment = dict(os.environ)
-        environment["HOME"] = self.home
-        environment["DTERM_SECRET"] = SECRET
-
-        if self.ping_seconds is not None:
-            environment["DTERM_PING_SECONDS"] = str(self.ping_seconds)
-
         self.process = subprocess.Popen(
-            [SERVER, str(self.port)], env=environment,
+            [SERVER, str(self.port)], env=self._environment(),
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         time.sleep(0.6)

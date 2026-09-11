@@ -2,6 +2,7 @@
 #include "protocol.hpp"
 
 #include <iostream>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
@@ -57,6 +58,50 @@ namespace {
         }
 
         return string(home);
+    }
+
+    // Where a new session's shell starts. Without this it would start wherever
+    // the server happened to be launched from, which is an accident rather
+    // than a choice.
+    string start_directory() {
+        const char *configured = getenv("DTERM_START_DIR");
+
+        if (configured == nullptr || *configured == '\0') {
+            return home_dir();
+        }
+
+        string directory(configured);
+
+        // A value from a systemd unit or a config file never passed through a
+        // shell, so a leading ~ reaches here unexpanded.
+        if (directory == "~" || directory.rfind("~/", 0) == 0) {
+            directory = home_dir() + directory.substr(1);
+        }
+
+        struct stat info = {};
+
+        if (stat(directory.c_str(), &info) == -1 || !S_ISDIR(info.st_mode)) {
+            cerr << "DTERM_START_DIR " << directory
+                 << " is not a directory; starting in the home directory" << endl;
+            return home_dir();
+        }
+
+        return directory;
+    }
+
+    // Runs in the shell's own process, just before exec. The directory was
+    // checked a moment ago, but it can still vanish in between.
+    void enter(const string &directory, const string &fallback) {
+        for (const string *candidate : {&directory, &fallback}) {
+            if (chdir(candidate->c_str()) == 0) {
+                // bash keeps PWD when it names the current directory, which
+                // preserves a symlinked path the way the user wrote it.
+                setenv("PWD", candidate->c_str(), 1);
+                return;
+            }
+        }
+
+        perror("dterm: chdir");
     }
 
     string socket_path(const string &name) {
@@ -162,6 +207,12 @@ namespace {
         size.ws_row = 24;
         size.ws_col = 80;
 
+        // Decided once, here, when the session is created. Reattaching never
+        // comes back through this code, so it can never move a shell that has
+        // since gone somewhere else.
+        const string directory = start_directory();
+        const string home = home_dir();
+
         const pid_t shell = forkpty(&master_fd, nullptr, nullptr, &size);
 
         if (shell == -1) {
@@ -175,12 +226,13 @@ namespace {
             // program that finds no TERM refuses to draw a full screen, so vim
             // and friends would fail for a reason nowhere near the real cause.
             setenv("TERM", "xterm-256color", 0);
+            enter(directory, home);
 
             execlp("bash", "bash", "--login", nullptr);
             _exit(EXIT_FAILURE);
         }
 
-        cout << "session '" << name << "' started" << endl;
+        cout << "session '" << name << "' started in " << directory << endl;
 
         const int ping_timeout = ping_interval_ms();
 

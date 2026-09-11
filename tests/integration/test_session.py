@@ -1,6 +1,7 @@
 """A session is a shell that outlives the connection that created it."""
 
 import os
+import re
 import struct
 import time
 import unittest
@@ -146,3 +147,76 @@ class SessionTest(unittest.TestCase):
                          "a process still holding the PTY keeps the session alive")
 
         os.kill(int(open(marker).read().strip()), 9)
+
+
+class StartDirectoryTest(unittest.TestCase):
+    """Where a new shell begins, and the guarantee that reattaching never moves it."""
+
+    def setUp(self):
+        self.server = dterm.Server()
+
+    def tearDown(self):
+        self.server.stop()
+
+    def make(self, name):
+        path = os.path.join(self.server.home, name)
+        os.makedirs(path)
+        return path
+
+    def start_in(self, start_dir):
+        self.server.start_dir = start_dir
+        self.server.start()
+
+    @staticmethod
+    def cwd(link):
+        # The typed command comes back echoed with $PWD unexpanded, so only a
+        # match that starts with "/" is the shell's actual answer.
+        found = [m for m in re.findall(rb"CWD=\[([^\]]*)\]", link.run("echo CWD=[$PWD]\n"))
+                 if m.startswith(b"/")]
+        return found[-1].decode() if found else None
+
+    def test_a_new_session_starts_in_the_home_directory_by_default(self):
+        # Not wherever the server happened to be launched from: the test runner
+        # starts it from the build directory, which is precisely what this rules out.
+        self.start_in(None)
+        link = self.server.attach("work")
+        self.assertEqual(self.cwd(link), self.server.home)
+        link.close()
+
+    def test_a_new_session_starts_in_the_configured_directory(self):
+        projects = self.make("Projects")
+        self.start_in(projects)
+        link = self.server.attach("work")
+        self.assertEqual(self.cwd(link), projects)
+        link.close()
+
+    def test_a_leading_tilde_is_expanded_against_home(self):
+        # What a systemd unit would pass: no shell ever expanded it.
+        projects = self.make("Projects")
+        self.start_in("~/Projects")
+        link = self.server.attach("work")
+        self.assertEqual(self.cwd(link), projects)
+        link.close()
+
+    def test_a_missing_directory_falls_back_to_home(self):
+        self.start_in(os.path.join(self.server.home, "does-not-exist"))
+        link = self.server.attach("work")
+        self.assertEqual(self.cwd(link), self.server.home,
+                         "a bad setting must still produce a usable shell")
+        link.close()
+
+    def test_reattaching_never_moves_the_shell(self):
+        # The start directory applies when a session is created. Applying it on
+        # every attach would yank the user out of wherever they had gone, which
+        # is exactly the state a persistent session exists to keep.
+        projects = self.make("Projects")
+        elsewhere = self.make("elsewhere")
+        self.start_in(projects)
+
+        link = self.server.attach("work")
+        link.run(f"cd {elsewhere}\n")
+        link.close()
+
+        link = self.server.attach("work")
+        self.assertEqual(self.cwd(link), elsewhere)
+        link.close()
