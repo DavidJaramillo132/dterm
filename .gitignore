@@ -18,3 +18,10 @@ dterm
 Thumbs.db
 __pycache__/
 *.pyc
+
+# Evidence that archify regenerates on demand, not sources. Kept out of the
+# repository because the diagrams they check are already here.
+docs/*.visual-check.*
+
+# Local tooling state, specific to one machine.
+.atl/
