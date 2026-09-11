@@ -56,6 +56,9 @@ server issues a random challenge and the client answers with
 
 ## Run
 
+For the day-to-day commands, including how to stop it and what to check when
+it will not connect, see [START.md](START.md).
+
 On the machine hosting the shell:
 
 ```bash
