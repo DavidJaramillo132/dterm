@@ -1,9 +1,10 @@
-# DTerm
+# DTerm Server
 
-A remote Linux terminal server written in C++, meant to be driven from an
-Android phone. It is a from-scratch alternative to SSH built as a systems
-programming exercise: PTYs, sockets, signals, framing and authentication are
-all hand-written rather than delegated to a library.
+DTerm is one project in two repositories.  
+This repo is the remote terminal server; the Android client lives in  
+[DTerm Mobile](https://github.com/DavidJaramillo132/Dterm_Movil).
+
+A from-scratch Linux terminal server written in C++20. PTYs, sockets, signals, framing and authentication are all hand-written rather than delegated to a library. Built as a systems programming exercise and designed to be driven from a phone.
 
 ## Status
 
@@ -16,7 +17,7 @@ all hand-written rather than delegated to a library.
 | v0.5 | One forked process per client |
 | v0.6 | Sessions that survive disconnection |
 
-Not implemented yet: transport encryption and the Android application.
+Not implemented yet: transport encryption.
 
 ## Requirements
 
@@ -38,8 +39,7 @@ Three binaries land in `build/`:
 
 ## The shared secret
 
-The server refuses to start without one, and both machines need the **same**
-value. Generate it once and copy it to the other side:
+The server refuses to start without one, and both machines need the **same** value. Generate it once and copy it to the other side:
 
 ```bash
 mkdir -p ~/.dterm
@@ -47,17 +47,13 @@ openssl rand -hex 32 > ~/.dterm/secret
 chmod 600 ~/.dterm/secret
 ```
 
-The file must not be readable by other users; the server checks and refuses a
-world-readable one. `$DTERM_SECRET` overrides the file when it is set.
+The file must not be readable by other users; the server checks and refuses a world-readable one. `$DTERM_SECRET` overrides the file when it is set.
 
-The secret authenticates the client — it is never sent over the wire. The
-server issues a random challenge and the client answers with
-`HMAC-SHA256(secret, challenge)`.
+The secret authenticates the client — it is never sent over the wire. The server issues a random challenge and the client answers with `HMAC-SHA256(secret, challenge)`.
 
 ## Run
 
-For the day-to-day commands, including how to stop it and what to check when
-it will not connect, see [START.md](START.md).
+For the day-to-day commands, including how to stop it and what to check when it will not connect, see [START.md](START.md).
 
 On the machine hosting the shell:
 
@@ -66,14 +62,9 @@ On the machine hosting the shell:
 ./build/dterm 9000       # or on a port of your choice
 ```
 
-`DTERM_PING_SECONDS` sets how long a silent client is given before the server
-pings it (default 30). Two unanswered pings detach the client; the session is
-left running.
+`DTERM_PING_SECONDS` sets how long a silent client is given before the server pings it (default 30). Two unanswered pings detach the client; the session is left running.
 
-`DTERM_START_DIR` sets where a new session's shell starts (default: your home
-directory). It is applied once, when the session is created, and never on
-reattach — a shell you have moved stays where you left it. A leading `~` is
-expanded, and a path that is not a directory falls back to home.
+`DTERM_START_DIR` sets where a new session's shell starts (default: your home directory). It is applied once, when the session is created, and never on reattach — a shell you have moved stays where you left it. A leading `~` is expanded, and a path that is not a directory falls back to home.
 
 ```bash
 DTERM_START_DIR=~/Projects ./build/dterm
@@ -89,32 +80,22 @@ With no arguments the client connects to `127.0.0.1:4242`.
 
 ## Sessions
 
-A session is a shell with its own PTY that lives in its own process, **separate
-from the network connection**. Losing the connection detaches you; it does not
-kill your work. Reconnecting puts you back in the same shell, with the same
-environment, the same running programs, and a replay of the last 64 KiB of
-output so the screen is not blank.
+A session is a shell with its own PTY that lives in its own process, **separate from the network connection**. Losing the connection detaches you; it does not kill your work. Reconnecting puts you back in the same shell, with the same environment, the same running programs, and a replay of the last 64 KiB of output so the screen is not blank.
 
 ```bash
 ./build/dterm-client 192.168.1.50 4242            # the "default" session
 ./build/dterm-client 192.168.1.50 4242 deploy     # a session named "deploy"
 ```
 
-Session names may contain letters, digits, `-` and `_`, up to 32 characters,
-because they become file names under `~/.dterm/sessions/`.
+Session names may contain letters, digits, `-` and `_`, up to 32 characters, because they become file names under `~/.dterm/sessions/`.
 
-A session ends when every process holding its PTY is gone — exiting the shell
-is usually enough, but a background job keeps it alive, exactly like `tmux`.
-Sessions outlive the server too: restarting `dterm` does not disturb them.
+A session ends when every process holding its PTY is gone — exiting the shell is usually enough, but a background job keeps it alive, exactly like `tmux`. Sessions outlive the server too: restarting `dterm` does not disturb them.
 
-Only one client is attached at a time. A second client attaching to the same
-session takes it over and the previous one is detached.
+Only one client is attached at a time. A second client attaching to the same session takes it over and the previous one is detached.
 
 ## Security
 
-Authentication is solid; **the transport is not encrypted**. Everything you
-type, including passwords typed into `sudo`, travels in cleartext. Treat DTerm
-as safe only on a network you trust, and tunnel it through a VPN otherwise.
+Authentication is solid; **the transport is not encrypted**. Everything you type, including passwords typed into `sudo`, travels in cleartext. Treat DTerm as safe only on a network you trust, and tunnel it through a VPN otherwise.
 
 ## Wire protocol
 
@@ -141,12 +122,9 @@ Every message is a length-prefixed binary frame:
 | `0x09` | AUTH_FAIL | server → client | empty |
 | `0x0A` | ATTACH | client → server | session name, empty means `default` |
 
-Integers are big-endian and written by hand rather than through `htonl`, so a
-JVM client can read them without depending on host byte order.
+Integers are big-endian and written by hand rather than through `htonl`, so a JVM client can read them without depending on host byte order.
 
-A connection runs HELLO → CHALLENGE → AUTH → AUTH_OK → ATTACH before the server
-spawns anything. An unauthenticated client never costs a shell process. The
-current protocol version is 2.
+A connection runs HELLO → CHALLENGE → AUTH → AUTH_OK → ATTACH before the server spawns anything. An unauthenticated client never costs a shell process. The current protocol version is 2.
 
 ## Layout
 
@@ -163,16 +141,10 @@ tests/      frame parser tests
 cd build && ctest --output-on-failure
 ```
 
-Two suites, 33 integration tests plus the parser unit test. It takes about two
-and a half minutes, most of it spent waiting on real timeouts.
+Two suites, 33 integration tests plus the parser unit test. It takes about two and a half minutes, most of it spent waiting on real timeouts.
 
-- `tests/protocol_test.cpp` feeds the parser the same byte stream whole, one
-  byte at a time, and in seven-byte slices, because TCP is free to split a
-  frame anywhere.
-- `tests/integration/` drives a real server over a real socket: the handshake
-  and every way it can be refused, session persistence across disconnects and
-  across a server restart, isolation between sessions, the connection limit,
-  and the keepalive.
+- `tests/protocol_test.cpp` feeds the parser the same byte stream whole, one byte at a time, and in seven-byte slices, because TCP is free to split a frame anywhere.
+- `tests/integration/` drives a real server over a real socket: the handshake and every way it can be refused, session persistence across disconnects and across a server restart, isolation between sessions, the connection limit, and the keepalive.
 
 To run them directly, or to run one file:
 
@@ -181,12 +153,7 @@ python3 tests/integration/run.py
 python3 tests/integration/run.py test_session.py
 ```
 
-Each test gets its own server on its own port with its own `HOME`, so the suite
-never touches a real `~/.dterm` or a real running server. Processes are found by
-reading `HOME` out of `/proc/<pid>/environ` rather than by matching command
-lines — `pgrep -f` also matches the test runner's own command line, and `pgrep`
-without `-f` compares only the process name, so a check for `bash --login` finds
-nothing and passes forever without testing anything.
+Each test gets its own server on its own port with its own `HOME`, so the suite never touches a real `~/.dterm` or a real running server. Processes are found by reading `HOME` out of `/proc/<pid>/environ` rather than by matching command lines — `pgrep -f` also matches the test runner's own command line, and `pgrep` without `-f` compares only the process name, so a check for `bash --login` finds nothing and passes forever without testing anything.
 
 ## How a connection is served
 
@@ -198,5 +165,4 @@ dterm (listener)
                                                      └── PTY ──> bash
 ```
 
-The connection process is disposable and parses nothing beyond the handshake.
-The session process owns the PTY and outlives it.
+The connection process is disposable and parses nothing beyond the handshake. The session process owns the PTY and outlives it.
